@@ -1,0 +1,34 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
+venv/
+.env
+.DS_Store
+
+# macOS
+*.DS_Store
+
+# Logs
+logs/
+trade_log.csv
+
+# Models
+models/
+reports/
+data/
+
+# Jupyter
+.ipynb_checkpoints
+
+# PyQt6 build artifacts
+*.pyc
+*.pyo
+
+# Test output
+*.pytest_cache
+
+# VSCode
+.vscode/
