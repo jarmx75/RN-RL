@@ -1,0 +1,10 @@
+pyqt6
+iqoptionapi
+stable-baselines3>=2.3.0
+torch
+gymnasium
+numpy
+pandas
+matplotlib
+pydantic
+python-dotenv
