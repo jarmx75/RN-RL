@@ -9,4 +9,4 @@ def test_imports():
     from app.rl.env import TradingEnv
     env = TradingEnv()
     obs, _ = env.reset()
-    assert obs.shape[1] == 5
+    assert obs.shape == env.observation_space.shape
