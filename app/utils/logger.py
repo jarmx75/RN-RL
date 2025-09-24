@@ -1,22 +1,55 @@
+"""Configuración de logging estructurado."""
+
+from __future__ import annotations
+
 import logging
+import logging.handlers
 import os
-from logging import Logger
+from pathlib import Path
 from typing import Optional
 
-LOG_DIR = "logs"
-os.makedirs(LOG_DIR, exist_ok=True)
+_LOGGER: Optional[logging.Logger] = None
 
-def get_logger(name: str, level: int = logging.INFO) -> Logger:
-    logger = logging.getLogger(name)
-    if not logger.hasHandlers():
-        formatter = logging.Formatter(
-            '{"time":"%(asctime)s","level":"%(levelname)s","name":"%(name)s","msg":"%(message)s"}'
-        )
-        fh = logging.FileHandler(os.path.join(LOG_DIR, "app.log"), encoding="utf-8")
-        fh.setFormatter(formatter)
-        logger.addHandler(fh)
-        ch = logging.StreamHandler()
-        ch.setFormatter(formatter)
-        logger.addHandler(ch)
-    logger.setLevel(level)
-    return logger
+
+def get_logger(name: str = "iqrl") -> logging.Logger:
+    """Obtiene un logger configurado con formato estructurado.
+
+    Parameters
+    ----------
+    name:
+        Nombre del logger.
+
+    Returns
+    -------
+    logging.Logger
+        Instancia de logger con configuración estándar para el proyecto.
+    """
+
+    global _LOGGER
+    if _LOGGER is not None:
+        return _LOGGER.getChild(name)
+
+    log_level = os.getenv("IQRL_LOG_LEVEL", "INFO").upper()
+    logger = logging.getLogger("iqrl")
+    logger.setLevel(log_level)
+
+    formatter = logging.Formatter(
+        fmt="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    console = logging.StreamHandler()
+    console.setFormatter(formatter)
+    logger.addHandler(console)
+
+    log_dir = Path(os.getenv("IQRL_LOG_DIR", "logs"))
+    log_dir.mkdir(parents=True, exist_ok=True)
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_dir / "iqrl.log", maxBytes=5 * 1024 * 1024, backupCount=5
+    )
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    logger.propagate = False
+    _LOGGER = logger
+    return logger.getChild(name)

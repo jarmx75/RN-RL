@@ -1,2 +1,4 @@
-#!/bin/bash
-python -m app.exec.runner_train --steps 5000
+#!/usr/bin/env bash
+set -euo pipefail
+source .venv/bin/activate
+python -m app.exec.runner_train "$@"

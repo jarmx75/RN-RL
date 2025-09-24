@@ -1,123 +1,132 @@
-import os
-import random
+"""Cliente resiliente para IQ Option."""
+
+from __future__ import annotations
+
+import threading
 import time
-from typing import List, Dict, Any, Tuple, Optional
+from dataclasses import dataclass
+from typing import Dict, Iterable, List, Optional, Tuple
+
 from dotenv import load_dotenv
 
-class IQClient:
-    def __init__(self):
-        from iqoptionapi.stable_api import IQ_Option
-        self.IQ_Option = IQ_Option
-        self.iq = None
-        self.connected = False
+from .utils.logger import get_logger
 
-    def connect(self, email: str, password: str, account: str = "PRACTICE") -> bool:
-        self.iq = self.IQ_Option(email, password)
-        self.iq.connect()
-        if self.iq.check_connect():
-            self.iq.change_balance(account)
-            self.connected = True
-        else:
-            self.connected = False
-        return self.connected
+try:  # pragma: no cover - import pesado
+    from iqoptionapi.stable_api import IQ_Option
+except Exception:  # pragma: no cover - entorno de test sin dependencia
+    IQ_Option = None  # type: ignore
 
-    def change_balance(self, balance_type: str):
-        if self.connected:
-            self.iq.change_balance(balance_type)
 
-    def get_all_open_time(self) -> Dict[str, Any]:
-        try:
-            return self.iq.get_all_open_time()
-        except Exception:
-            return {}
+@dataclass(slots=True)
+class AssetOpenTime:
+    name: str
+    is_open: bool
+    option_type: str
 
-    def start_candles_stream(self, asset: str, tf: int, n: int):
-        self.iq.start_candles_stream(asset, tf, n)
 
-    def get_realtime_candles(self, asset: str, tf: int) -> List[Dict[str, Any]]:
-        return self.iq.get_realtime_candles(asset, tf)
+class IQOptionClient:
+    """Wrapper con reconexión automática sobre iqoptionapi."""
 
-    def stop_candles_stream(self, asset: str, tf: int):
-        self.iq.stop_candles_stream(asset, tf)
+    def __init__(
+        self,
+        email: str,
+        password: str,
+        account_type: str = "PRACTICE",
+        reconnect_interval: int = 5,
+    ) -> None:
+        load_dotenv()
+        self.email = email
+        self.password = password
+        self.account_type = account_type.upper()
+        self.reconnect_interval = reconnect_interval
+        self._client: Optional[IQ_Option] = None
+        self._lock = threading.RLock()
+        self._logger = get_logger("iq_client")
+        self._connect()
 
-    def buy(self, amount: float, asset: str, direction: str, minutes: int) -> Tuple[bool, Optional[str]]:
-        _, id = self.iq.buy(amount, asset, direction, minutes)
-        return True, id
+    def _connect(self) -> None:
+        if IQ_Option is None:
+            raise RuntimeError("iqoptionapi no disponible en el entorno actual")
+        self._logger.info("Conectando con IQ Option como %s", self.email)
+        self._client = IQ_Option(self.email, self.password)
+        self._client.connect()
+        if not self._client.check_connect():
+            raise ConnectionError("No se pudo establecer conexión con IQ Option")
+        self._client.change_balance(self.account_type)
+        self._logger.info("Conectado. Balance %s", self.account_type)
 
-    def check_win_v2(self, trade_id: str, poll_sec: int = 3) -> float:
-        time.sleep(poll_sec)
-        return self.iq.check_win_v2(trade_id)
+    def ensure_connection(self) -> None:
+        with self._lock:
+            if self._client is None:
+                self._connect()
+            elif not self._client.check_connect():
+                self._logger.warning("Reconectando con IQ Option")
+                time.sleep(self.reconnect_interval)
+                self._connect()
 
-    def check_connect(self) -> bool:
-        return self.iq.check_connect()
+    @property
+    def client(self) -> IQ_Option:
+        if self._client is None:
+            raise RuntimeError("Cliente no inicializado")
+        return self._client
 
-class DryRunIQClient:
-    """Simula IQ Option API para tests y desarrollo"""
-    def __init__(self, assets: List[str], timeframes: List[int]):
-        self.assets = assets
-        self.timeframes = timeframes
-        self.trades = {}
-        self.balance = 1000.0
+    def get_open_assets(self) -> List[AssetOpenTime]:
+        self.ensure_connection()
+        result = self.client.get_all_open_time()
+        assets: List[AssetOpenTime] = []
+        for market in ("turbo", "binary", "digital"):
+            for asset, info in result.get(market, {}).items():
+                assets.append(
+                    AssetOpenTime(
+                        name=asset,
+                        is_open=bool(info.get("open", False)),
+                        option_type=market,
+                    )
+                )
+        return assets
 
-    def connect(self, email: str = "", password: str = "", account: str = "PRACTICE") -> bool:
-        return True
+    def start_candles_stream(self, asset: str, timeframe: int, count: int) -> None:
+        self.ensure_connection()
+        self.client.start_candles_stream(asset, timeframe, count)
 
-    def change_balance(self, balance_type: str):
-        return
+    def stop_candles_stream(self, asset: str, timeframe: int) -> None:
+        self.ensure_connection()
+        self.client.stop_candles_stream(asset, timeframe)
 
-    def get_all_open_time(self) -> Dict[str, Any]:
-        return {asset: {"open": True} for asset in self.assets}
+    def get_realtime_candles(self, asset: str, timeframe: int) -> Dict[int, Dict[str, float]]:
+        self.ensure_connection()
+        return self.client.get_realtime_candles(asset, timeframe)
 
-    def start_candles_stream(self, asset: str, tf: int, n: int):
-        pass
+    def buy(self, asset: str, amount: float, direction: str, duration: int) -> Tuple[bool, Optional[int]]:
+        self.ensure_connection()
+        success, trade_id = self.client.buy(amount, asset, direction, duration)
+        return bool(success), trade_id
 
-    def get_realtime_candles(self, asset: str, tf: int) -> List[Dict[str, Any]]:
-        import numpy as np
-        candles = []
-        price = 1.0 + 0.01 * random.random()
-        for _ in range(10):
-            change = np.random.normal(0, 0.001)
-            o = price
-            c = price + change
-            h = max(o, c) + abs(np.random.normal(0, 0.0005))
-            l = min(o, c) - abs(np.random.normal(0, 0.0005))
-            v = random.randint(1, 10)
-            candles.append({"open": o, "close": c, "high": h, "low": l, "volume": v, "epoch": time.time()})
-            price = c
-        return candles
+    def buy_digital(self, asset: str, amount: float, direction: str, duration: int) -> Tuple[bool, Optional[int]]:
+        self.ensure_connection()
+        trade_id = self.client.buy_digital_spot(asset, amount, direction, duration)
+        return trade_id is not None, trade_id
 
-    def stop_candles_stream(self, asset: str, tf: int):
-        pass
-
-    def buy(self, amount: float, asset: str, direction: str, minutes: int) -> Tuple[bool, str]:
-        trade_id = f"DRY_{random.randint(1000,9999)}"
-        self.trades[trade_id] = {"asset": asset, "direction": direction, "amount": amount}
-        return True, trade_id
-
-    def check_win_v2(self, trade_id: str, poll_sec: int = 1) -> float:
-        trade = self.trades.get(trade_id, None)
-        if not trade:
+    def check_win(self, trade_id: int) -> Optional[float]:
+        self.ensure_connection()
+        status, profit = self.client.check_win_v2(trade_id)
+        if status == "win":
+            return float(profit)
+        if status == "loose":
+            return -float(abs(profit))
+        if status == "equal":
             return 0.0
-        win = random.choice([True, False])
-        return 0.8 * trade["amount"] if win else -trade["amount"]
+        return None
 
-    def check_connect(self) -> bool:
-        return True
+    def change_balance(self, account_type: str) -> None:
+        self.account_type = account_type.upper()
+        self.ensure_connection()
+        self.client.change_balance(self.account_type)
 
-def make_client_from_env(config_path: str = "config/config.yaml"):
-    load_dotenv()
-    email = os.getenv("IQ_EMAIL", "")
-    password = os.getenv("IQ_PASSWORD", "")
-    account = os.getenv("IQ_ACCOUNT", "PRACTICE")
-    import yaml
-    with open(config_path, "r") as f:
-        cfg = yaml.safe_load(f)
-    assets = cfg.get("assets", ["EURUSD", "GBPUSD"])
-    timeframes = cfg.get("timeframes", [60])
-    if not email or not password:
-        return DryRunIQClient(assets, timeframes)
-    client = IQClient()
-    if client.connect(email, password, account):
-        return client
-    else:
-        return DryRunIQClient(assets, timeframes)
+    def close(self) -> None:
+        if self._client is not None:
+            try:
+                self._client.close()
+            except Exception:  # pragma: no cover
+                pass
+            self._client = None

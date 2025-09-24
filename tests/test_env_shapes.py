@@ -1,11 +1,17 @@
-def test_env_shapes():
-    from app.rl.env import TradingEnv
-    env = TradingEnv()
-    assert env.observation_space.shape == (10,5)
-    assert env.action_space.n == 3
-    obs, _ = env.reset()
-    action = 0
-    next_obs, reward, done, _, _ = env.step(action)
-    assert next_obs.shape == (10,5)
-    assert isinstance(reward, float)
-    assert isinstance(done, bool)
+"""Validación de shapes del extractor de features."""
+
+from __future__ import annotations
+
+import numpy as np
+
+from app.rl.features import build_feature_tensor
+
+
+def test_feature_tensor_shape():
+    data = {
+        ("EURUSD", 60): np.random.rand(20, 5).astype(np.float32),
+        ("GBPUSD", 300): np.random.rand(20, 5).astype(np.float32),
+    }
+    tensor = build_feature_tensor(data)
+    assert tensor.shape == (2, 20, 6)
+    assert np.allclose(tensor.mean(axis=(1, 2)), 0, atol=1.0)
