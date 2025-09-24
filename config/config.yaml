@@ -1,7 +1,23 @@
-assets: [EURUSD, GBPUSD, USDJPY, AUDUSD, USDCHF, USDCAD, EURGBP, EURJPY, GBPJPY, AUDJPY]
-timeframes: [60, 300, 900]
-threshold: 0.70
+assets:
+  - EURUSD
+  - GBPUSD
+  - USDJPY
+  - AUDUSD
+  - USDCHF
+  - USDCAD
+  - EURGBP
+  - EURJPY
+  - GBPJPY
+  - AUDJPY
+timeframes:
+  - 60
+  - 300
+  - 900
+threshold: 0.7
 amount: 1.0
 max_consecutive_losses: 3
-operating_hours: [0, 24]
+daily_stop_loss: 50.0
+daily_take_profit: 100.0
+operating_hours:
+  - [0, 24]
 dynamic_threshold: false
